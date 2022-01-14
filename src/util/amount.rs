@@ -41,17 +41,17 @@ pub enum Denomination {
 }
 
 impl Denomination {
-    /// The number of decimal places more than a satoshi.
-    fn precision(self) -> i32 {
+    /// The exponent of 10 relative to Bitcoin
+    fn exponent(self) -> i32 {
         match self {
-            Denomination::Bitcoin => -8,
-            Denomination::MilliBitcoin => -5,
-            Denomination::MicroBitcoin => -2,
-            Denomination::NanoBitcoin => 1,
-            Denomination::PicoBitcoin => 4,
-            Denomination::Bit => -2,
-            Denomination::Satoshi => 0,
-            Denomination::MilliSatoshi => 3,
+            Denomination::Bitcoin => 0,
+            Denomination::MilliBitcoin => -3,
+            Denomination::MicroBitcoin => -6,
+            Denomination::Bit => -6,
+            Denomination::Satoshi => -8,
+            Denomination::NanoBitcoin => -9,
+            Denomination::MilliSatoshi => -11,
+            Denomination::PicoBitcoin => -12,
         }
     }
 }
@@ -189,8 +189,9 @@ impl fmt::Display for ParseAmountError {
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 impl ::std::error::Error for ParseAmountError {}
 
-fn is_too_precise(s: &str, precision: usize) -> bool {
-    s.contains('.') || precision >= s.len() || s.chars().rev().take(precision).any(|d| d != '0')
+/// check if the decimal string only has whole number part and the whole number part ends with at least `num_of_zero` zero
+fn end_with_all_zero_whole_number(s: &str, num_of_zero: usize) -> bool {
+    s.contains('.') || num_of_zero >= s.len() || s.chars().rev().take(num_of_zero).any(|d| d != '0')
 }
 
 /// Parse decimal string in the given denomination into a satoshi value and a
@@ -217,20 +218,20 @@ fn parse_signed_to_satoshi(
     let max_decimals = {
         // The difference in precision between native (satoshi)
         // and desired denomination.
-        let precision_diff = -denom.precision();
-        if precision_diff < 0 {
-            // If precision diff is negative, this means we are parsing
+        let exp_diff = denom.exponent() - Denomination::Satoshi.exponent();
+        if exp_diff < 0 {
+            // If exp diff is negative, this means we are parsing
             // into a less precise amount. That is not allowed unless
             // there are no decimals and the last digits are zeroes as
-            // many as the difference in precision.
-            let last_n = precision_diff.abs() as usize;
-            if is_too_precise(s, last_n) {
+            // many as the difference in power.
+            let last_n = exp_diff.abs() as usize;
+            if end_with_all_zero_whole_number(s, last_n) {
                 return Err(ParseAmountError::TooPrecise);
             }
             s = &s[0..s.len() - last_n];
             0
         } else {
-            precision_diff
+            exp_diff
         }
     };
 
@@ -288,16 +289,16 @@ fn fmt_satoshi_in(
         f.write_str("-")?;
     }
 
-    let precision = denom.precision();
-    match precision.cmp(&0) {
+    let exp_diff = Denomination::Satoshi.exponent() - denom.exponent();
+    match exp_diff.cmp(&0) {
         Ordering::Greater => {
             // add zeroes in the end
-            let width = precision as usize;
+            let width = exp_diff as usize;
             write!(f, "{}{:0width$}", satoshi, 0, width = width)?;
         }
         Ordering::Less => {
             // need to inject a comma in the number
-            let nb_decimals = precision.abs() as usize;
+            let nb_decimals = exp_diff.abs() as usize;
             let real = format!("{:0width$}", satoshi, width = nb_decimals);
             if real.len() == nb_decimals {
                 write!(f, "0.{}", &real[real.len() - nb_decimals..])?;
@@ -345,7 +346,7 @@ impl Amount {
     /// The maximum value allowed as an amount. Useful for sanity checking.
     pub const MAX_MONEY: Amount = Amount(21_000_000 * 100_000_000);
 
-    /// Create an [Amount] with satoshi precision and the given number of satoshis.
+    /// Create an [Amount] with satoshi unit and the given number of satoshis.
     pub fn from_sat(satoshi: u64) -> Amount {
         Amount(satoshi)
     }
@@ -632,7 +633,7 @@ impl SignedAmount {
     /// The maximum value allowed as an amount. Useful for sanity checking.
     pub const MAX_MONEY: SignedAmount = SignedAmount(21_000_000 * 100_000_000);
 
-    /// Create an [SignedAmount] with satoshi precision and the given number of satoshis.
+    /// Create an [SignedAmount] with satoshi unit and the given number of satoshis.
     pub fn from_sat(satoshi: i64) -> SignedAmount {
         SignedAmount(satoshi)
     }
